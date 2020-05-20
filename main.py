@@ -1,15 +1,17 @@
 # imports
-import cv as cv
+import cv2 as cv
 import numpy as np
 from helpers import butter_bandpass_filter
 from helpers import detect_face
 from helpers import feature_extraction
-from scipy.interpolate import interp1d
+from helpers import find_corners
+from scipy.interpolate import CubicSpline
 from sklearn.decomposition import PCA
 
 
+
 # Load Video
-cap = cv.VideoCapture('somevideo.mp4')
+cap = cv.VideoCapture('test.mp4')
 
 if (cap.isOpened()== False): 
     print("Error opening video stream or file")
@@ -29,18 +31,14 @@ feature_params = dict( maxCorners = 100,
 lk_params = dict( winSize  = (15,15),
                   maxLevel = 2,
                   criteria = (cv.TERM_CRITERIA_EPS | cv.TERM_CRITERIA_COUNT, 10, 0.03))
+
 # First frame
 ret, prev_frame = cap.read()
 prev_frame_gray = cv.cvtColor(prev_frame, cv.COLOR_BGR2GRAY)
-# detect face frame
-face_frame = detect_face(prev_frame, face_cascade)
-# Region Selection
-roi_features_gray = cv.cvtColor(feature_extraction(face_frame), cv.COLOR_BGR2GRAY)
-# Find Corners
-p0 = cv.goodFeaturesToTrack(roi_features_gray, mask = None, **feature_params)
+# find corners
+p0 = find_corners(prev_frame, face_cascade, feature_params)
 
-
-vertical_component = np.array([[]])
+vertical_component = np.array([])
 while(cap.isOpened()):
     ret, current_frame = cap.read()
     if ret == False:
@@ -50,17 +48,22 @@ while(cap.isOpened()):
     p1, st, err = cv.calcOpticalFlowPyrLK(prev_frame_gray, current_frame_gray, p0, None, **lk_params)
     # we take the vertical component
     # TODO: check the output for x and y
-    vertical_component.append(p1[0][1])
-
+    if p1 is None:
+        p0 = find_corners(prev_frame, face_cascade, feature_params)
+        p1, st, err = cv.calcOpticalFlowPyrLK(prev_frame_gray, current_frame_gray, p0, None, **lk_params)
+    p1 = p1[st==1]
+    vertical_component = np.append(vertical_component, [element[1] for element in p1])
     # changing frames
+    prev_frame = current_frame.copy()
     prev_frame_gray = current_frame_gray.copy()
-    p0 = p1
+    p0 = p1.reshape(-1, 1, 2)
 
+import ipdb; ipdb.set_trace()
 # take x as timestamps and y as vertical components
-x = None
-y = None
+x = list(range(len(vertical_component)))
+y = vertical_component
 # apply cubic spline interpolation
-resampled_signal = interp1d(x, y, kind='cubic')
+resampled_signal = CubicSpline(x, y)
 
 # butterworth filtering
 filtered_signal = butter_bandpass_filter(resampled_signal, 0.75, 5)
