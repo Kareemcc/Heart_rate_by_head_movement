@@ -3,15 +3,17 @@ import cv2 as cv
 import numpy as np
 from helpers import butter_bandpass_filter
 from helpers import detect_face
-from helpers import feature_extraction
 from helpers import find_corners
-from scipy.interpolate import CubicSpline
+from helpers import window
+from helpers import interpolate_points
+# from scipy.interpolate import CubicSpline
 from sklearn.decomposition import PCA
 
-
+interpolated = None
 
 # Load Video
 cap = cv.VideoCapture('test.mp4')
+fps = cap.get(cv.CAP_PROP_FPS)
 
 if (cap.isOpened()== False): 
     print("Error opening video stream or file")
@@ -34,43 +36,47 @@ lk_params = dict( winSize  = (15,15),
 
 # First frame
 ret, prev_frame = cap.read()
-prev_frame_gray = cv.cvtColor(prev_frame, cv.COLOR_BGR2GRAY)
+prev_gray = cv.cvtColor(prev_frame, cv.COLOR_BGR2GRAY)
 # find corners
-p0 = find_corners(prev_frame, face_cascade, feature_params)
+p0 = find_corners(prev_gray, face_cascade, feature_params)
+firstp = p0
 
 vertical_component = np.array([])
 while(cap.isOpened()):
     ret, current_frame = cap.read()
     if ret == False:
             break
-    current_frame_gray = cv.cvtColor(current_frame, cv.COLOR_BGR2GRAY)
+    current_gray = cv.cvtColor(current_frame, cv.COLOR_BGR2GRAY)
     # apply lucas Kanade optical flow for trajectories
-    p1, st, err = cv.calcOpticalFlowPyrLK(prev_frame_gray, current_frame_gray, p0, None, **lk_params)
-    # we take the vertical component
-    # TODO: check the output for x and y
-    if p1 is None:
-        p0 = find_corners(prev_frame, face_cascade, feature_params)
-        p1, st, err = cv.calcOpticalFlowPyrLK(prev_frame_gray, current_frame_gray, p0, None, **lk_params)
-    p1 = p1[st==1]
-    vertical_component = np.append(vertical_component, [element[1] for element in p1])
+    p1, st, err = cv.calcOpticalFlowPyrLK(prev_gray, current_gray, p0, None, **lk_params)
+    good_new = p1[st==1]
+    good_old = p0[st==1]
+    good_first = firstp[st==1]
+
+    vertical_component = np.append(vertical_component, ((good_new - good_first)[:, 1]))
     # changing frames
-    prev_frame = current_frame.copy()
-    prev_frame_gray = current_frame_gray.copy()
+    prev_gray = current_gray.copy()
     p0 = p1.reshape(-1, 1, 2)
 
-import ipdb; ipdb.set_trace()
-# take x as timestamps and y as vertical components
-x = list(range(len(vertical_component)))
-y = vertical_component
-# apply cubic spline interpolation
-resampled_signal = CubicSpline(x, y)
+for data in window(vertical_component):
+    points = np.array([p for p in data])
+    # Interpolate points to 250 Hz
+    try:
+        interpolated = interpolate_points(np.vstack(points), fps=fps).T
+    except ValueError:
+        continue
 
-# butterworth filtering
-filtered_signal = butter_bandpass_filter(resampled_signal, 0.75, 5)
+# filtering data
+filtered = butter_bandpass_filter(interpolated).T
 
 # PCA decomposition
+# First we remove the time-frames with the top 25%
+norms = np.linalg.norm(filtered, 2, axis=1)
+removed_abnormalities = filtered[norms > np.percentile(norms, 75)]
+import ipdb; ipdb.set_trace()
 pca = PCA()
-signals_list = pca.fit(filtered_signal)
+pca.fit(removed_abnormalities)
+transformed = pca.transform(filtered)
 
 # Signal Selection 
 
