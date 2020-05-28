@@ -6,6 +6,8 @@ from helpers import detect_face
 from helpers import find_corners
 from helpers import window
 from helpers import interpolate_points
+from helpers import find_periodicities
+from helpers import getpeaks
 # from scipy.interpolate import CubicSpline
 from sklearn.decomposition import PCA
 
@@ -57,15 +59,13 @@ while(cap.isOpened()):
     # changing frames
     prev_gray = current_gray.copy()
     p0 = p1.reshape(-1, 1, 2)
-
-for data in window(vertical_component):
-    points = np.array([p for p in data])
-    # Interpolate points to 250 Hz
-    try:
-        interpolated = interpolate_points(np.vstack(points), fps=fps).T
-    except ValueError:
-        continue
-
+# for data in window(vertical_component):
+#     points = np.array([p for p in data])
+#     # Interpolate points to 250 Hz
+#     try:
+interpolated = interpolate_points(np.vstack(vertical_component), fps=fps).T
+    # except ValueError:
+    #     continue
 # filtering data
 filtered = butter_bandpass_filter(interpolated).T
 
@@ -73,17 +73,29 @@ filtered = butter_bandpass_filter(interpolated).T
 # First we remove the time-frames with the top 25%
 norms = np.linalg.norm(filtered, 2, axis=1)
 removed_abnormalities = filtered[norms > np.percentile(norms, 75)]
-import ipdb; ipdb.set_trace()
+
 pca = PCA()
 pca.fit(removed_abnormalities)
 transformed = pca.transform(filtered)
 
-# Signal Selection 
+frequencies, periodicities = find_periodicities(transformed)
 
+# find indicies of peaks
+peaks = [getpeaks(transformed[i]) for i in range(5)]
+most_periodic = np.argmax(periodicities)
 
 # Finding bpm
-
-
+print ("Periodicities: ", periodicities)
+# print "Most periodic: ", most_periodic
+# print "Frequencies: ", frequencies
+# print "Peak count BPMs: ", [len(p) for p in peaks]
+# for i in range(5):
+#     # print "Heart rate by FFT estimate: {} BPM".format(60.0 * frequencies[most_periodic])
+#     print ('{}, FFT: {} BPM, periodicity: {}'.format(i, 60.0 * frequencies[i], periodicities[i]))
+num_peaks = len(peaks)
+num_seconds = len(transformed) / (250)
+countbpm = num_peaks * (60.0 / num_seconds)
+print ("Heart rate by peak estimate: {} BPM".format(countbpm))
 
 
 # end script

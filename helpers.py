@@ -104,3 +104,69 @@ def interpolate_points(points, fps=30, sample_freq=250, axis=0):
     # Define the new time axis,
     xnew = np.arange(0, N - 1, fps/sample_freq)
     return f(xnew)
+
+
+def find_periodicities(X, sample_freq=250.0):
+
+    X = X - np.mean(X, axis=0)
+    sigs = []
+    for row in X:
+        sigs.append(row / np.std(X))
+    
+    X = np.array(sigs)
+
+
+    # Find the power spectrum of the signal (absolute fft squared)
+    power = np.abs(np.fft.rfft(X, axis=0))**2
+
+    cutoff = 1
+    power = power[cutoff:, :]
+
+    # Build a list of the actual frequencies corresponding to each fft index, using numpy's rfftfreq
+    # n.b. This is where I'm having some trouble. I don't think I'm actually getting the right
+    # numbers out for the frequencies of these signals...
+
+    real_frequencies = np.fft.rfftfreq(
+        X.shape[0],  d=(1 / (sample_freq)))[cutoff:]
+
+    # Find the most powerful non-zero frequency in each signal
+    start = 0
+    max_indices = np.argmax(power[start:, :], axis=0) + start
+
+    # The first haromic component of f = f*2
+    harmonic_indices = max_indices * 2
+    # Initialise arrays for return values
+    periodicities = []
+    frequencies = []
+    i = 0
+
+    # Loop over each signal
+    for fundamental, harmonic in zip(max_indices, harmonic_indices):
+        # Get the real frequency highest power component
+        frequencies.append(real_frequencies[fundamental])
+
+        # Get the total power of the highest power component and its
+        # first harmonic, as a percentage of the total signal power
+        period_power = np.sum(power[[fundamental, harmonic], i])
+        total_power = np.sum(power[:, i])
+        percentage = period_power / total_power
+
+        # That number is (apparently) the signal periodicity
+        periodicities.append(percentage)
+        i += 1
+
+    return np.array(frequencies), np.array(periodicities)
+# def find_periodicities(X, sample_freq=250.0):
+#     import ipdb; ipdb.set_trace()
+#     X = X - np.mean(X, axis=0)
+#     power = np.abs(np.fft.rfft(X, axis=0))**2
+#     max_idx = np.argmax(power)
+#     max_freq = 8.0
+
+
+
+def getpeaks(x, winsize=151):
+    for i, win in enumerate(window(x, winsize, 1)):
+        ind = int(winsize / 2)
+        if np.argmax(win) == ind:
+            yield i + ind
